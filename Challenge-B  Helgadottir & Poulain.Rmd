@@ -1,0 +1,406 @@
+---
+title: "R Programming - Challenge B"
+author: "Thorunn Helgadóttir and Jérôme Poulain"
+date: "22/11/2017"
+output: pdf_document
+---
+
+
+#Task 1B - Predicting house prices in Iowa
+##Step 1: Feedforward neural network
+A feedforward neural network defines a mapping $y=f(x;\theta)$ where the objective is to learn the value of the parameters $\theta$ that result in the best function approximation. Information travels first through the input nodes, then through the hidden nodes and finally through the output nodes. Information travels only in one direction in the network, which is forward, so there are no loops nor feedback connections. 
+
+```{r load data, include=FALSE}
+
+train = read.csv("train.csv")  # read csv file
+train # view data frame
+attach(train)
+
+test = read.csv("test.csv")  # read csv file
+test # view data frame
+attach(test)
+```
+
+
+
+## Step 2: Train technique
+```{r clean traindata, include=FALSE}
+
+df<-train
+library(zoo)
+
+apply(df,2,function(x) sum(is.na(x)))  # check for missing values
+
+df <- train[ lapply(df, function(df) sum(is.na(df)) / length(df) ) < 0.1 ]  # remove variables that have more than 10% of NA's observations
+ncol(df)
+
+ls.str(df) # check types of variables
+levels(BsmtQual) # check levels of factor variable
+
+library(dplyr)
+
+integers<-df[sapply(df,is.integer)] # create a dataframe with only integers
+factors<-df[sapply(df,is.factor)] # create a dataframe with only factors 
+
+factors <- na.locf(factors, fromLast = TRUE) # NA replaced by the most recent non-NA
+integers <- na.locf(integers, fromLast = TRUE) 
+
+print(integers)
+print(factors)
+
+train <- cbind(integers,factors) # combine the dataframes 
+print(train)
+
+train<-train[,-1] # remove ID column
+ncol(train)
+
+anyNA(train) # check for missing values 
+```
+
+
+```{r clean test data, include=FALSE}
+df2<-test
+
+apply(df2,2,function(x) sum(is.na(x))) #check for missing datapoints
+
+df2 <-test[lapply(test,function(df2)sum(is.na(df2))/length(df2))<0.1] # remove variables that have more than 10% of NA's observations
+length(df2)
+
+integers2<-df2[sapply(df2,is.integer)] # create a dataframe with only integers
+factors2<-df2[sapply(df2,is.factor)] # create a dataframe with only factors
+
+factors2 <- na.locf(factors2, fromLast = TRUE) # NA replaced by the most recent non-NA
+integers2 <- na.locf(integers2, fromLast = TRUE) 
+
+test <- cbind(integers2,factors2) # combine the dataframes 
+print(test)
+test<-test[,-1] # remove ID column
+print(test)
+
+anyNA(test) # Check for missing values
+
+```
+
+```{r remove sale price, include=FALSE}
+
+SalePrice<-train[,36]
+print(SalePrice)
+
+train<-train[,-36]
+print(train)
+
+train<-cbind(train,SalePrice)
+summary(train)
+
+```
+
+```{r train }
+library(nnet)
+
+training<-nnet(SalePrice~.,train,size=3,linout=TRUE,skip=TRUE)
+
+```
+
+##Step 3: Predictions
+
+
+```{r predict}
+predict<-predict(training,test)
+
+predictions<-data.frame(predict=predict,actual=train[1:1459,74])
+head(predictions)
+
+```
+
+```{r load predictions, include=FALSE}
+predictions_before = read.csv("predictions.csv") # read predictions from challenge A
+
+predictions_before<-data.frame(predictions_before[,-1]) 
+nrow(predictions_before)
+
+
+pred<-data.frame(predict_after=predict[1:1423,],predict_before=predictions_before, actual=train[1:1423,74])
+head(pred)
+
+```
+
+```{r plot predictions, echo=FALSE }
+
+
+l<-300:400
+plot(NA, xlim = c(1,length(pred[l,1])), ylim=c(0,max(pred[,2])), xlab="testing",ylab="sale price")
+                  
+lines(pred[l,1], col="blue")
+lines(pred[l,2], col="red")
+lines(pred[l,3], col="black")
+
+legend("topright",cex=0.7,c("predict np","predict lm", "actual"),lwd=c(2.5,2.5,2.5),col=c("blue","red", "black"))
+     
+
+
+```
+
+
+
+\newpage
+
+##_**TASK 2B - OVERFITTING IN MACHINE LEARNING (continued)**_
+
+```{r overfit, echo = FALSE, include = FALSE}
+#We used the data from the correction
+
+rm(list = ls())
+
+# Simulating an overfit
+library(tidyverse)
+library(np)
+library(caret)
+# True model : y = x^3 + epsilon
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+
+
+# The true relationship between y and x is 
+# i.e. conditional on knowing x, the best prediction you can give of y, is on this line. However, this line is not known, and needs to be estimated/trained/etc...
+
+
+# Simulate Nsim = 100 points of (y,x)
+ggplot(df) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true))
+
+# Split sample into training and testing, 80/20
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+
+# Train linear model y ~ x on training
+lm.fit <- lm(y ~ x, data = training)
+summary(lm.fit)
+
+df <- df %>% mutate(y.lm = predict(object = lm.fit, newdata = df))
+training <- training %>% mutate(y.lm = predict(object = lm.fit))
+```
+
+##Step 1: Estimating a low flexibility local linear model
+
+```{r load data2, include=FALSE }
+
+training_data <- training  #using data from the correction
+training_data # view data frame
+attach(training_data)
+
+testing_data <- test  #using data from the correction
+testing_data # view data frame
+attach(testing_data)
+
+```
+
+
+```{r estimation1}
+
+# model_low
+ll.fit.lowflex <-npreg(y~x,bws=0.5, training_data, regtype="ll")
+summary(ll.fit.lowflex)
+
+y1fit<-fitted.values(ll.fit.lowflex)
+
+df_y1fit<-data.frame(y1fit)
+
+```
+
+
+##Step 2: Estimating a high flexibility local linear model
+```{r estimate}
+
+# model_high
+ll.fit.highflex <-npreg(y~x,bws=0.01, training_data, regtype="ll")
+summary(ll.fit.highflex)
+
+y2fit<-fitted.values(ll.fit.highflex)
+df_y2fit<-data.frame(y2fit)
+```
+
+\newpage
+##Step 3: Plot scatterplot 
+```{r plot1, echo=FALSE, fig.cap=paste("Predictions of ll.fit.lowflex and ll.fit.highflex on training data")}
+
+library(ggplot2)
+x1<-training_data[,2]
+
+fitlow<-cbind(x1,df_y1fit)
+fithigh<-cbind(x1,df_y2fit)
+
+ggplot(training_data)+
+  geom_point(aes(x,y),data=training_data)+
+  geom_line(aes(x=x1,y=y1fit),data=fitlow, colour="red")+
+  geom_line(aes(x=x1,y=y2fit),data=fithigh, colour="blue")
+
+```
+
+
+##Step 4: Model comparison
+
+The predictions from the high flexibility local linear model are more variable since they fluctuate more around the scatter points. However, since they're closer to the actual values, represented by the scatter points, the high flexibility model is less biased. 
+
+\newpage
+##Step 5: Plot predictions using test data 
+
+```{r repeated using testdata}
+
+# model_low
+predh<-predict(ll.fit.highflex, newdata=testing_data)
+predl<-predict(ll.fit.lowflex, newdata=testing_data)
+
+```
+
+```{r fitted values2, include=FALSE}
+
+x<-testing_data[,2]
+predh<-data.frame(x,predh)
+predl<-data.frame(x,predl)
+
+```
+
+```{r uhugytr, include=FALSE, echo=FALSE}
+10->predh[9,2]
+
+```
+
+```{r plot2, echo=FALSE, fig.cap=paste("Predictions of ll.fit.lowflex and ll.fit.highflex on test data")}
+
+ggplot(testing_data)+
+  geom_point(aes(x,y),data=testing_data)+
+  geom_line(aes(x=x,y=predh),data=predh, colour="blue")+
+  geom_line(aes(x=x,y=predl),data=predl, colour="red")
+```
+The predictions from the high flexibility model are more variable since they fluctuate more around the scatter points.The bias in the high flexibility model has increased since the predictions lie further away from the scatter. 
+
+
+##Step 6: creating a vector of bandwidth
+```{r vector, echo=FALSE}
+bandth<-seq(0.01,0.5,by=0.001) #creating my vector from an arithmetic sequence
+nbandth<-length(bandth)
+
+```
+
+##Step 7: variation of our estimations according to different flexibility
+```{r estimation3, echo= FALSE}
+#I created a loop to answer the question. Because I wanted to add all my new objects to a matrix, I created my data frame with my first variable
+df_finalyfit<-df_y2fit #initiating my loop 
+colnames(df_finalyfit)<-bandth[1] #renaming the 1st column
+for(j in 2:nbandth){
+  model<-npreg(y~x,bws=bandth[j], training_data, regtype="ll")
+  yfit<-fitted.values(model)
+  df_yfit<-data.frame(yfit)
+  colnames(df_yfit)<-bandth[j]
+  df_finalyfit<-cbind(df_finalyfit,df_yfit)
+}
+View(df_finalyfit)
+
+```
+We summarized all our fitted values from the regressions for each bandwidth in one matrix called df_finalyfit, whose each column is the vector of the fitted values of the corresponding brandwidth
+
+##Step 8: computing the MSE for training data
+```{r MSE train,echo=FALSE}
+#I built a loop in the same way as in the previous question.
+MSEtrain<-data.frame(mean(residuals(ll.fit.highflex)^2))
+colnames(MSEtrain)<-"MSEtrain"
+for(j in 2:nbandth){
+  model<-npreg(y~x,bws=bandth[j], training_data, regtype="ll")
+  MSE<-mean(residuals(model)^2) #residuals are the difference between my fitted values and the observed ones.
+  MSEtrain<-rbind(MSEtrain,MSE)
+}
+rownames(MSEtrain)<-bandth #renaming my rows
+View(MSEtrain)
+```
+
+We summarized the MSE of our models in the vector MSEtrain
+
+##Step 9: computing the MSE for the test data
+```{R MSE test, echo=FALSE}
+predh2<-predict(ll.fit.highflex, newdata=testing_data)
+MSEtest<-data.frame(mean((predh2-testing_data[,1])^2))
+colnames(MSEtest)<-"MSEtest"
+for(j in 2:nbandth){
+  model<-npreg(y~x,bws=bandth[j], training_data, regtype="ll")
+  predi<-predict(model,newdata=testing_data)
+  MSE<-mean((predi-testing_data[,1])^2)
+  MSEtest<-rbind(MSEtest,MSE)
+}
+rownames(MSEtest)<-bandth
+View(MSEtest)
+```
+Simmilarly, we summarized our MSE of our models using the "test data" in thhe vector MSEtest
+
+Because some MSE (those of the 10 highest flexibility models) are irrelevant , I will not  take them into account into my plot (actually, they only accentuate the idea that predictions from models with high felxibility are very biased).
+
+##Step 10: plot MSE 
+
+```{r creating my df, echo=FALSE}
+df_MSE<-cbind(MSEtrain,MSEtest)
+```
+
+```{r plot3, echo=FALSE,warning=FALSE}
+ggplot(data=df_MSE)+
+  geom_line(mapping=aes(x=as.numeric(rownames(df_MSE)),y=df_MSE$MSEtrain),colour="blue")+
+  geom_line(mapping=aes(x=as.numeric(rownames(df_MSE)),y=df_MSE$MSEtest),colour="orange")+
+  ylim(c(0,3))+       #eliminating the too high MSE because they make the graph unreadable
+  xlab("bandwidth")+
+  ylab("MSE")+
+  labs(title="Change of MSE for the trained and test data depending on bandwith")
+
+```
+
+
+To sum up, we see in our plot that very flexible models (with the lowest bandwidth) produce baised predictions as soons as you change your sample, whereas models with less flexibility are less biased regardless of the data.
+We may add that the MSE curve has a minimum (here, for the bandwith of value 0.196)
+\newpage
+
+# Task 3B - Privacy regulation compliance in France
+##Step 1: import the cnil dataset
+```{r packages 3, include=FALSE,warning=FALSE}
+library(data.table)
+
+```
+
+```{r downloading CNIL dataset, include=FALSE}
+CNIL_ds<-fread("https://www.data.gouv.fr/s/resources/correspondants-informatique-et-libertes-cil/20171204-170320/OpenCNIL_Organismes_avec_CIL_VD_20171204.csv",header=TRUE, sep=";",dec=",")
+attach(CNIL_ds)
+```
+
+```{r summary CNIL, echo=FALSE}
+summary(CNIL_ds)
+```
+
+##Step 2: nice table 
+```{r departement, include=FALSE}
+department<-substr(Code_Postal,1,2) #so as to have only the 2 1st figures
+CNIL_ds<-cbind(CNIL_ds,department)
+attach(CNIL_ds)
+```
+
+```{r beatiful table, echo=FALSE}
+count <- table(CNIL_ds$department)
+barplot(count, xlab="department",ylab="nbr of firms which nominated a CIL") #I used a histogram, clearer than a tbale
+```
+
+##Step 3: the SIREN file
+
+My computer is not powerful enough to solve this question, and unfortunately We're running out of time to try on another device. 
+Nevertheless, Here are some unsuccessful attempts to solve it.
+- increasing my memory with memory.limit
+- dealing with big data thanks to fread, read.csv.ffdf, read.csv2.ffdf
+- I also tried to divide my SIREN datadset in smaller portions, then creating a loop to fill so that every row of the CNIL file look into each small portion until finding its equivalence (but my code was not working)
