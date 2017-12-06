@@ -4,7 +4,8 @@ author: "Thorunn Helgadóttir and Jérôme Poulain"
 date: "22/11/2017"
 output: pdf_document
 ---
-
+##link towards github repo
+https://github.com/JeromePoulain/Challenge-B-Helgadottir-Poulain.git
 
 #Task 1B - Predicting house prices in Iowa
 ##Step 1: Feedforward neural network
